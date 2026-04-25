@@ -1,0 +1,21 @@
+services:
+  sql:
+    build:
+      context: .
+      dockerfile: Dockerfile.sql
+    container_name: yacheol-sql
+    volumes:
+      - game-db:/data
+
+  game:
+    build: .
+    ports:
+      - "12321:8000"
+    container_name: yacheol-game
+    depends_on:
+      - sql
+    volumes:
+      - game-db:/data
+
+volumes:
+  game-db:
