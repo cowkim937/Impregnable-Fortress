@@ -188,8 +188,8 @@ export function initializeGame() {
     function nukeDamage(maxHp) { return 1_000_000_000 * hrcDamageLevel() + maxHp * 0.8; }
     function currentWeapon() { return troopTiers[state.troopTier] || troopTiers[0]; }
     function mapEdgeDistance() { return wallRadius() + 1050; }
-    function missileDamage(maxHp, againstVillage = false) {
-      return (200 * hrcDamageLevel() + maxHp * 0.4) * (againstVillage ? 2 : 1);
+    function missileDamage() {
+      return itemCost("mine") + state.troopBoost * 50 * hrcMult();
     }
     function thunderDamage() { return (100 * hrcDamageLevel() + state.troops / 10) / 3; }
     function makeLightningBolt(fromX, fromY, toX, toY, options = {}) {
@@ -320,6 +320,9 @@ export function initializeGame() {
       const distance = Math.hypot(robot.x - center.x, robot.y - center.y);
       const proximity = 1 - Math.min(1, distance / 1200);
       return 0.1 + proximity * 0.6;
+    }
+    function robotTravelDuration() {
+      return performance.now() < (state.overtimeUntil || 0) ? 2000 : 4000;
     }
     function twoNLogProgress(level, start, end) {
       const span = end - start;
@@ -956,16 +959,16 @@ export function initializeGame() {
       }
     }
     function impactMissile(missile) {
+      const damage = missileDamage();
       for (const enemy of state.enemies) {
-        if (Math.hypot(enemy.x - missile.x, enemy.y - missile.y) <= missile.radius) enemy.hp -= missileDamage(enemy.maxHp);
+        if (Math.hypot(enemy.x - missile.x, enemy.y - missile.y) <= missile.radius) enemy.hp -= damage;
       }
       for (const v of [...state.villages]) {
         if (Math.hypot(v.x - missile.x, v.y - missile.y) > missile.radius) continue;
-        const maxHp = v.maxHp || 1;
-        damageVillage(v, missileDamage(maxHp, true), `🚀-${fmt(missileDamage(maxHp, true))}`, "#ffde66");
+        damageVillage(v, damage, `🚀-${fmt(damage)}`, "#ffde66");
       }
       state.magicEffects.push({ type: "explosion", x: missile.x, y: missile.y, radius: missile.radius, life: 0.9 });
-      addEffect(missile.x, missile.y, `🚀 ${fmt(missileDamage(0))}+40%`, "#ffde66", 28);
+      addEffect(missile.x, missile.y, "", "#ffde66", 28);
     }
     function impactNuke(nuke) {
       for (const enemy of state.enemies) {
@@ -1031,14 +1034,16 @@ export function initializeGame() {
     function robotPosition(robot, now) {
       const mine = buildings.find(b => b.id === "mine");
       const home = workerHomePoint();
-      const cycle = 10000;
+      const travel = robotTravelDuration();
+      const mineTime = 2000;
+      const cycle = travel * 2 + mineTime;
       const t = ((now - robot.startedAt) % cycle + cycle) % cycle;
-      if (t < 4000) {
-        const p = t / 4000;
+      if (t < travel) {
+        const p = t / travel;
         return { x: home.x + (mine.x - home.x) * p, y: home.y + (mine.y - home.y) * p, phase: "toMine" };
       }
-      if (t < 6000) return { x: mine.x, y: mine.y, phase: "mining" };
-      const p = (t - 6000) / 4000;
+      if (t < travel + mineTime) return { x: mine.x, y: mine.y, phase: "mining" };
+      const p = (t - travel - mineTime) / travel;
       return { x: mine.x + (home.x - mine.x) * p, y: mine.y + (home.y - mine.y) * p, phase: "toHome" };
     }
     function updateWorkers(now) {
@@ -1050,7 +1055,6 @@ export function initializeGame() {
           const gain = mineGain(4);
           addMineResources(gain);
           addEffect(pos.x, pos.y, "", "#ffe082", 24);
-          sound.play("robot_work", { volume: robotWorkVolume(now) });
           robot.cargo = null;
         }
       }
@@ -1763,7 +1767,7 @@ export function initializeGame() {
       document.getElementById("wallCost").textContent = state.wallLevel >= 99 ? "MAX" : `Lv.${state.wallLevel}/99 · ${fmt(wall)}🪨 ${fmt(wall/2)}💰`;
       document.getElementById("repairBuyCost").textContent = `보유 ${fmt(state.inventory.repair)}개 · ${fmt(repair)}💰`;
       document.getElementById("mineItemCost").textContent = `보유 ${fmt(state.inventory.mine)}개 · ${fmt(itemCost("mine"))}💰`;
-      document.getElementById("missileCost").textContent = `보유 ${fmt(state.inventory.missile)}개 · ${fmt(itemCost("missile"))}💰 · ${fmt(missileDamage(0))}+최대HP40%`;
+      document.getElementById("missileCost").textContent = `보유 ${fmt(state.inventory.missile)}개 · ${fmt(itemCost("missile"))}💰 · 피해 ${fmt(missileDamage())}`;
       document.getElementById("nukeCost").textContent = `보유 ${fmt(state.inventory.nuke)}개/2 · ${fmt(itemCost("nuke"))}💰 · 범위 x7`;
       document.getElementById("overtimeCost").textContent = `보유 ${fmt(state.inventory.overtime)}개 · ${fmt(itemCost("overtime"))}💰 · 60s 채굴 x2`;
       document.getElementById("laserCost").textContent = `보유 ${fmt(state.inventory.laser)}개 · ${fmt(itemCost("laser"))}💰 · HP 50%↑ 25% / 50%↓ 13%`;
@@ -1847,7 +1851,7 @@ export function initializeGame() {
     function buyRobot() {
       const p = robotUpgradeCost();
       if (state.robotLevel < 20 && state.gold >= p && state.ore >= p/2) {
-        state.gold -= p; state.ore -= p/2; state.robotLevel++; ensureWorkers(); log(`🦾 채굴 로봇 +${state.robotLevel}`);
+        state.gold -= p; state.ore -= p/2; state.robotLevel++; ensureWorkers(); sound.play("robot_work"); log(`🦾 채굴 로봇 +${state.robotLevel}`);
       }
     }
     function buyMerchant() {
