@@ -1,0 +1,14 @@
+Sound assets are extracted from Kenney audio packs and converted to MP3.
+Source: https://kenney.nl/assets
+License: Creative Commons CC0 1.0 Universal (Public Domain)
+License URL: https://creativecommons.org/publicdomain/zero/1.0/
+
+Mappings:
+- mine_click.mp3: Kenney Impact Sounds / Audio/impactMining_000.ogg
+- hrc_upgrade.mp3: Kenney Digital Audio / Audio/powerUp1.ogg
+- wall_hit.mp3: Kenney Impact Sounds / Audio/impactMetal_heavy_000.ogg
+- nuke_launch.mp3: Kenney Digital Audio / Audio/lowDown.ogg
+- nuke_explosion.mp3: Kenney Sci-fi Sounds / Audio/explosionCrunch_004.ogg
+- robot_work.mp3: Kenney Sci-fi Sounds / Audio/computerNoise_000.ogg
+- windy_active.mp3: Kenney Sci-fi Sounds / Audio/spaceEngineLow_002.ogg
+- admin_cheat.mp3: Kenney Digital Audio / Audio/zapThreeToneUp.ogg

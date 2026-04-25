@@ -22,6 +22,56 @@ export function initializeGame() {
     const ADMIN_KEY = "cowkim";
     const ADMIN_RECORD_NAME = "-!-!-ADMIN-!-!-";
     const RANKING_STORAGE_KEY = "yacheol_fortress_rankings_v1";
+    const TRAINING_BATCH_MULTIPLIER = 13;
+    const SOUND_FILES = {
+      mine_click: "./public/sounds/mine_click.mp3",
+      hrc_upgrade: "./public/sounds/hrc_upgrade.mp3",
+      wall_hit: "./public/sounds/wall_hit.mp3",
+      nuke_launch: "./public/sounds/nuke_launch.mp3",
+      nuke_explosion: "./public/sounds/nuke_explosion.mp3",
+      robot_work: "./public/sounds/robot_work.mp3",
+      windy_active: "./public/sounds/windy_active.mp3",
+      admin_cheat: "./public/sounds/admin_cheat.mp3"
+    };
+
+    class SoundManager {
+      constructor(files, volume = 0.45) {
+        this.files = files;
+        this.volume = volume;
+        this.enabled = true;
+        this.unlocked = false;
+        this.lastPlayed = new Map();
+        this.cooldowns = { wall_hit: 220, mine_click: 80, robot_work: 180 };
+        this.sounds = Object.fromEntries(Object.entries(files).map(([name, src]) => {
+          const audio = new Audio(src);
+          audio.preload = "auto";
+          audio.volume = volume;
+          return [name, audio];
+        }));
+        const unlock = () => this.unlock();
+        addEventListener("pointerdown", unlock, { once: true, passive: true });
+        addEventListener("keydown", unlock, { once: true });
+        addEventListener("touchstart", unlock, { once: true, passive: true });
+      }
+      unlock() {
+        this.unlocked = true;
+        for (const audio of Object.values(this.sounds)) {
+          audio.load();
+        }
+      }
+      play(name) {
+        if (!this.enabled || !this.unlocked || !this.sounds[name]) return;
+        const now = performance.now();
+        const cooldown = this.cooldowns[name] || 0;
+        if (now - (this.lastPlayed.get(name) || 0) < cooldown) return;
+        this.lastPlayed.set(name, now);
+        const audio = this.sounds[name].cloneNode(true);
+        audio.volume = this.volume;
+        audio.play().catch(() => {});
+      }
+    }
+
+    const sound = new SoundManager(SOUND_FILES);
 
     function ensureInventoryItems() {
       if (!state.inventory) return;
@@ -67,7 +117,8 @@ export function initializeGame() {
         wood: 120, stone: 120, ore: 60, gold: 120, troops: 25,
         hrc: 1, wave: 1, kills: 0, clicks: 0,
         castleHp: castleMaxHp, castleMaxHp,
-        wallLevel: 1, mineLevel: 1, robotLevel: 0, merchantLevel: 0, autoLevel: diff.autoBonus || 0, troopBoost: 1, troopTier: 0,
+        wallLevel: 1, mineLevel: 1, robotLevel: 0, merchantLevel: 0, autoLevel: diff.autoBonus || 0, autoBuildingIndex: 0, troopBoost: 1, troopTier: 0,
+        weaponEvolution: null,
         repairItems: 0, repairMode: false,
         inventory: { repair: 0, mine: 0, missile: 0, nuke: 0, overtime: 0, laser: 0, thunderer: 0, windy: 0 },
         quickSlots: ["repair", "mine", "missile", "laser"],
@@ -212,6 +263,26 @@ export function initializeGame() {
       const curve = (2 * n * Math.log1p(n)) / (2 * maxN * Math.log1p(maxN));
       return Math.floor(normalMaxCost * normalCostMultiplier() * curve);
     }
+    function earlyDiscountCountUpgradeCost(currentCount, maxCount, normalMaxCost) {
+      const cost = countUpgradeCost(currentCount, maxCount, normalMaxCost);
+      return currentCount < 5 ? Math.max(1, Math.floor(cost / 50)) : cost;
+    }
+    function robotUpgradeCost() { return earlyDiscountCountUpgradeCost(state.robotLevel, 20, 10_000_000_000); }
+    function merchantUpgradeCost() { return earlyDiscountCountUpgradeCost(state.merchantLevel || 0, 10, 5_000_000_000); }
+    function weaponDisplayEmoji(tier = state.troopTier) {
+      const weapon = troopTiers[tier] || troopTiers[0];
+      if (weapon.kind === "bullet") return "🔫";
+      if (weapon.kind === "lightning") return "⚡";
+      return weapon.emoji || "⚔️";
+    }
+    function weaponEvolutionDuration(targetTier) {
+      return 30000 * Math.pow(2, Math.max(0, targetTier - 1));
+    }
+    function weaponEvolutionProgress(now = performance.now()) {
+      const evo = state.weaponEvolution;
+      if (!evo) return 0;
+      return Math.max(0, Math.min(1, (now - evo.startedAt) / Math.max(1, evo.endsAt - evo.startedAt)));
+    }
     function twoNLogProgress(level, start, end) {
       const span = end - start;
       const n = Math.max(1, level - start);
@@ -274,9 +345,11 @@ export function initializeGame() {
         return price ? `-⛏️${fmt(price.ore)} -💰${fmt(price.gold)} → 🔥HRC${state.hrc + 1}` : "⚡ HRC-MAX";
       }
       if (id === "barracks") {
-        const wood = 18 + state.troopBoost * 4, stone = 10 + state.troopBoost * 3;
-        const gain = Math.floor((5 + state.troopBoost) * hrcMult() * troopTiers[state.troopTier].power);
-        return `-🪵${fmt(wood)} -🪨${fmt(stone)} +${troopTiers[state.troopTier].emoji}${fmt(gain)}`;
+        const wood = (18 + state.troopBoost * 4) * TRAINING_BATCH_MULTIPLIER;
+        const stone = (10 + state.troopBoost * 3) * TRAINING_BATCH_MULTIPLIER;
+        const gain = Math.floor((5 + state.troopBoost) * hrcMult() * troopTiers[state.troopTier].power * TRAINING_BATCH_MULTIPLIER);
+        const evoText = state.weaponEvolution ? " · 무기 진화중" : "";
+        return `현재 ${weaponDisplayEmoji()} ${troopTiers[state.troopTier].name}${evoText} · -🪵${fmt(wood)} -🪨${fmt(stone)} +🧑‍✈️${fmt(gain)}`;
       }
       if (id === "market") return `-🪵30 -🪨24 +💰${fmt(54 * 1.8 * hrcMult() * merchantRate())} · 상인 +${state.merchantLevel || 0}/10 (+${Math.round(((state.merchantLevel || 0) * 0.1) * 100)}%)`;
       return "";
@@ -358,6 +431,7 @@ export function initializeGame() {
       const { wood, stone, ore } = mineGain();
       addMineResources({ wood, stone, ore });
       addEffect(x, y, `🪵+${fmt(wood)} 🪨+${fmt(stone)} ⛏️+${fmt(ore)}`, "#ffe082", 18);
+      sound.play("mine_click");
       if (!auto) log("⛏️ 채굴 완료");
     }
     function forge(x, y, auto = false) {
@@ -370,15 +444,17 @@ export function initializeGame() {
       state.castleMaxHp += 35 + state.hrc * 8; state.castleHp = Math.min(state.castleMaxHp, state.castleHp + 35 + state.hrc * 8);
       state.walls.forEach(w => { w.maxHp += 12 + state.hrc * 3; w.hp = Math.min(w.maxHp, w.hp + 12 + state.hrc * 3); });
       addEffect(x, y, state.hrc >= 81 ? "⚡ 우르 HRC-MAX!" : `🔥 HRC ${state.hrc}`, state.hrc >= 78 ? "#e8edff" : "#ffb347", 28);
+      sound.play("hrc_upgrade");
       if (!auto) log(`⚒️ 제련 성공: ${hrcName()}`);
     }
     function train(x, y, auto = false) {
-      const wood = 18 + state.troopBoost * 4, stone = 10 + state.troopBoost * 3;
+      const wood = (18 + state.troopBoost * 4) * TRAINING_BATCH_MULTIPLIER;
+      const stone = (10 + state.troopBoost * 3) * TRAINING_BATCH_MULTIPLIER;
       if (state.wood < wood || state.stone < stone) { addEffect(x, y, "⚠️ 자원 부족", "#ff806b", 18); return; }
       state.wood -= wood; state.stone -= stone;
-      const gain = Math.floor((5 + state.troopBoost) * hrcMult() * troopTiers[state.troopTier].power);
+      const gain = Math.floor((5 + state.troopBoost) * hrcMult() * troopTiers[state.troopTier].power * TRAINING_BATCH_MULTIPLIER);
       state.troops += gain;
-      addEffect(x, y, `${troopTiers[state.troopTier].emoji}+${fmt(gain)}`, "#cbe5ff", 22);
+      addEffect(x, y, `${weaponDisplayEmoji()} +${fmt(gain)}`, "#cbe5ff", 22);
       if (!auto) log("⚔️ 병력 훈련 완료");
     }
     function market(x, y, auto = false) {
@@ -599,6 +675,7 @@ export function initializeGame() {
         }));
         closeGameplayModals();
         addEffect(0, 0, "🌬️ 윈디 5s", "#dff8ff", 34);
+        sound.play("windy_active");
         consumeItem(type);
         return;
       }
@@ -648,6 +725,10 @@ export function initializeGame() {
         state.windyUntil += delta;
         state.windyLastTick += delta;
         state.overtimeUntil += delta;
+        if (state.weaponEvolution) {
+          state.weaponEvolution.startedAt += delta;
+          state.weaponEvolution.endsAt += delta;
+        }
         for (const village of state.villages) {
           village.lastSpawn += delta;
           village.spawnedAt += delta;
@@ -660,6 +741,14 @@ export function initializeGame() {
       }
       document.getElementById("pauseBtn").textContent = paused ? "▶️ 계속하기" : "⏸️ 일시정지";
       log(paused ? "⏸️ 게임 일시정지" : "▶️ 게임 재개");
+    }
+    function updateWeaponEvolution(now) {
+      const evo = state.weaponEvolution;
+      if (!evo || now < evo.endsAt) return;
+      state.troopTier = evo.targetTier;
+      state.weaponEvolution = null;
+      sound.play("hrc_upgrade");
+      log(`${weaponDisplayEmoji()} ${troopTiers[state.troopTier].name} 무기 진화 완료`);
     }
     function updateEnemies(dt) {
       for (let i = state.enemies.length - 1; i >= 0; i--) {
@@ -714,6 +803,7 @@ export function initializeGame() {
             if (seg.hp > 0) {
               seg.hp = Math.max(0, seg.hp - Math.floor(dmg * boom));
               addEffect(e.x, e.y, `${e.ability === "explode" ? "💥" : "🧱"}-${Math.floor(dmg * boom)}`, "#ffb36c", 17);
+              sound.play("wall_hit");
               if (seg.hp === 0) log(`💥 ${seg.index + 1}번 성벽 파괴! 적이 내부로 진입합니다.`);
             } else {
               const castleDmg = Math.max(1, Math.floor((e.atk - state.hrc * 0.25) * boom));
@@ -812,6 +902,7 @@ export function initializeGame() {
       const now = performance.now();
       state.missiles.push({ type: "nuke", x, y, startY: visibleWorldTop(), radius: nukeRadius(), launchedAt: now, impactAt: now + 5000 });
       addEffect(x, y, "", "#ff6b45", 32);
+      sound.play("nuke_launch");
     }
     function updateMissiles(now) {
       for (let i = state.missiles.length - 1; i >= 0; i--) {
@@ -844,6 +935,7 @@ export function initializeGame() {
       state.magicEffects.push({ type: "nuke", x: nuke.x, y: nuke.y, radius: nuke.radius, life: 2.2 });
       state.radiationZones.push({ x: nuke.x, y: nuke.y, radius: nuke.radius, born: performance.now(), until: performance.now() + 60000 });
       addEffect(nuke.x, nuke.y, "", "#ff5a22", 42);
+      sound.play("nuke_explosion");
     }
     function updateWave(now) {
       state.waveTarget = waveTarget();
@@ -863,11 +955,13 @@ export function initializeGame() {
       }
     }
     function updateAuto(now) {
-      if (state.autoLevel <= 0 && state.robotLevel <= 0) return;
+      if (state.autoLevel <= 0) return;
       const delay = autoDelay();
       if (now - state.lastAuto < delay) return;
       state.lastAuto = now;
-      clickBuilding(buildings[(Math.floor(now / delay) + state.autoLevel) % buildings.length], true);
+      const autoBuildings = [buildings.find(b => b.id === "mine"), buildings.find(b => b.id === "market")].filter(Boolean);
+      clickBuilding(autoBuildings[state.autoBuildingIndex % autoBuildings.length], true);
+      state.autoBuildingIndex++;
     }
     function autoDelay() {
       if (state.autoLevel <= 0) return Infinity;
@@ -914,6 +1008,7 @@ export function initializeGame() {
           const gain = mineGain(4);
           addMineResources(gain);
           addEffect(pos.x, pos.y, "", "#ffe082", 24);
+          sound.play("robot_work");
           robot.cargo = null;
         }
       }
@@ -1038,10 +1133,17 @@ export function initializeGame() {
       for (const b of buildings) {
         ctx.save(); ctx.shadowColor = state.selected === b.id ? "#fff06a" : "rgba(0,0,0,.35)"; ctx.shadowBlur = state.selected === b.id ? 18 : 5;
         ctx.font = "42px Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(b.emoji, b.x, b.y - 10);
-        ctx.font = "22px Arial"; ctx.fillText(b.sub, b.x, b.y + 22);
+        ctx.font = b.id === "barracks" ? "30px Arial" : "22px Arial";
+        ctx.fillText(b.id === "barracks" ? weaponDisplayEmoji() : b.sub, b.x, b.y + 22);
         ctx.restore();
         ctx.font = "bold 13px Arial"; ctx.textAlign = "center"; ctx.fillStyle = "#fff4c7"; ctx.fillText(b.name, b.x, b.y + 50);
         ctx.font = "11px Arial"; ctx.fillStyle = "#ffe7a5"; ctx.fillText(buildingPreview(b.id), b.x, b.y + 67);
+        if (b.id === "barracks" && state.weaponEvolution) {
+          const progress = weaponEvolutionProgress();
+          ctx.fillStyle = "#7ef7ff";
+          ctx.font = "bold 13px Arial";
+          ctx.fillText(`무기 진화중 ${Math.floor(progress * 100)}%`, b.x, b.y - 72);
+        }
       }
     }
     function drawWalls() {
@@ -1571,6 +1673,16 @@ export function initializeGame() {
     function updateBillionsWarning() {
       document.getElementById("billionsWarning").classList.toggle("active", running && !state.ended && isBillionsSurgeWave());
     }
+    function weaponEvolutionCostHtml(next, cost) {
+      if (!next) return "최종 무기";
+      const current = troopTiers[state.troopTier];
+      if (state.weaponEvolution) {
+        const progress = weaponEvolutionProgress();
+        const remaining = Math.max(0, state.weaponEvolution.endsAt - performance.now());
+        return `${weaponDisplayEmoji(state.weaponEvolution.targetTier)} ${troopTiers[state.weaponEvolution.targetTier].name} 진화중 · ${timeText(remaining)}<div class="shopProgress"><div class="shopProgressFill" style="width:${Math.floor(progress * 100)}%"></div></div>`;
+      }
+      return `${weaponDisplayEmoji()} ${current.name} → ${weaponDisplayEmoji(state.troopTier + 1)} ${next.name} · 무기Lv ${next.req}+ · ${fmt(cost)}💰 · ${timeText(weaponEvolutionDuration(state.troopTier + 1))}`;
+    }
 
     function updateUI() {
       updateLaserStatus();
@@ -1597,7 +1709,7 @@ export function initializeGame() {
         return `<div class="wallMini" title="${w.index + 1}번 ${fmt(w.hp)}/${fmt(w.maxHp)}">${wallEmoji(w)} ${w.index + 1}<br>${pct}</div>`;
       }).join("");
 
-      const auto = upgradeCost(90, state.autoLevel, 1.25), mineC = upgradeCost(65, state.mineLevel, 1.18), robot = countUpgradeCost(state.robotLevel, 20, 10_000_000_000), merchant = countUpgradeCost(state.merchantLevel || 0, 10, 5_000_000_000);
+      const auto = upgradeCost(90, state.autoLevel, 1.25), mineC = upgradeCost(65, state.mineLevel, 1.18), robot = robotUpgradeCost(), merchant = merchantUpgradeCost();
       const troop = upgradeCost(120, state.troopBoost, 1.19), wall = upgradeCost(150, state.wallLevel, 1.19), repair = itemCost("repair");
       const next = troopTiers[state.troopTier + 1];
       const tier = (next && next.kind === "gravity" ? 5 : 1) * 350 * Math.pow(3, state.troopTier);
@@ -1605,7 +1717,7 @@ export function initializeGame() {
       document.getElementById("mineCost").textContent = state.mineLevel >= 99 ? "MAX" : `Lv.${state.mineLevel}/99 · ${fmt(mineC)}💰 ${fmt(mineC/2)}🪨`;
       document.getElementById("robotCost").textContent = state.robotLevel >= 20 ? "MAX" : `+${state.robotLevel}/20 · ${fmt(robot)}💰 ${fmt(robot/2)}⛏️ · 왕복 채굴 x4`;
       document.getElementById("merchantCost").textContent = (state.merchantLevel || 0) >= 10 ? "MAX" : `+${state.merchantLevel || 0}/10 · ${fmt(merchant)}💰 · 시장 획득률 +${Math.round(((state.merchantLevel || 0) + 1) * 10)}%`;
-      document.getElementById("troopCost").textContent = state.troopBoost >= 99 ? "MAX" : `Lv.${state.troopBoost}/99 · ${fmt(troop)}💰 ${fmt(troop/3)}🪵`;
+      document.getElementById("troopCost").textContent = state.troopBoost >= 99 ? "MAX" : `무기Lv.${state.troopBoost}/99 · ${fmt(troop)}💰 ${fmt(troop/3)}🪵`;
       document.getElementById("wallCost").textContent = state.wallLevel >= 99 ? "MAX" : `Lv.${state.wallLevel}/99 · ${fmt(wall)}🪨 ${fmt(wall/2)}💰`;
       document.getElementById("repairBuyCost").textContent = `보유 ${fmt(state.inventory.repair)}개 · ${fmt(repair)}💰`;
       document.getElementById("mineItemCost").textContent = `보유 ${fmt(state.inventory.mine)}개 · ${fmt(itemCost("mine"))}💰`;
@@ -1615,7 +1727,7 @@ export function initializeGame() {
       document.getElementById("laserCost").textContent = `보유 ${fmt(state.inventory.laser)}개 · ${fmt(itemCost("laser"))}💰 · HP 50%↑ 25% / 50%↓ 13%`;
       document.getElementById("thundererCost").textContent = `보유 ${fmt(state.inventory.thunderer)}개 · ${fmt(itemCost("thunderer"))}💰 · 5기/0.6s`;
       document.getElementById("windyCost").textContent = `보유 ${fmt(state.inventory.windy)}개 · ${fmt(itemCost("windy"))}💰 · 전체 5s`;
-      document.getElementById("tierCost").textContent = next ? `${troopTiers[state.troopTier].emoji}${troopTiers[state.troopTier].name} → ${next.emoji}${next.name} · 병력Lv ${next.req}+ · ${fmt(tier)}💰` : "최종 병과";
+      document.getElementById("tierCost").innerHTML = weaponEvolutionCostHtml(next, tier);
       document.getElementById("autoBtn").disabled = state.autoLevel >= 10 || state.gold < auto;
       document.getElementById("mineBtn").disabled = state.mineLevel >= 99 || state.gold < mineC || state.stone < mineC / 2;
       document.getElementById("robotBtn").disabled = state.robotLevel >= 20 || state.gold < robot || state.ore < robot / 2;
@@ -1630,7 +1742,7 @@ export function initializeGame() {
       document.getElementById("laserBuyBtn").disabled = state.gold < itemCost("laser");
       document.getElementById("thundererBuyBtn").disabled = state.gold < itemCost("thunderer");
       document.getElementById("windyBuyBtn").disabled = state.gold < itemCost("windy");
-      document.getElementById("tierBtn").disabled = !next || state.troopBoost < next.req || state.gold < tier;
+      document.getElementById("tierBtn").disabled = !!state.weaponEvolution || !next || state.troopBoost < next.req || state.gold < tier;
       renderQuickSlots();
       renderInventory();
     }
@@ -1691,25 +1803,30 @@ export function initializeGame() {
     function buyAuto() { const p = upgradeCost(90, state.autoLevel, 1.25); if (state.autoLevel < 10 && state.gold >= p) { state.gold -= p; state.autoLevel++; log(`🤖 자동 클릭 Lv.${state.autoLevel} · ${autoDelay()}ms`); } }
     function buyMine() { const p = upgradeCost(65, state.mineLevel, 1.18); if (state.mineLevel < 99 && state.gold >= p && state.stone >= p/2) { state.gold -= p; state.stone -= p/2; state.mineLevel++; log(`⛏️ 채굴 강화 Lv.${state.mineLevel}`); } }
     function buyRobot() {
-      const p = countUpgradeCost(state.robotLevel, 20, 10_000_000_000);
+      const p = robotUpgradeCost();
       if (state.robotLevel < 20 && state.gold >= p && state.ore >= p/2) {
         state.gold -= p; state.ore -= p/2; state.robotLevel++; ensureWorkers(); log(`🦾 채굴 로봇 +${state.robotLevel}`);
       }
     }
     function buyMerchant() {
-      const p = countUpgradeCost(state.merchantLevel || 0, 10, 5_000_000_000);
+      const p = merchantUpgradeCost();
       if ((state.merchantLevel || 0) < 10 && state.gold >= p) {
         state.gold -= p; state.merchantLevel = (state.merchantLevel || 0) + 1; ensureWorkers(); log(`🧙 업그레이드 상인 +${state.merchantLevel}`);
       }
     }
-    function buyTroop() { const p = upgradeCost(120, state.troopBoost, 1.19); if (state.troopBoost < 99 && state.gold >= p && state.wood >= p/3) { state.gold -= p; state.wood -= p/3; state.troopBoost++; log(`⚔️ 병력 강화 Lv.${state.troopBoost}`); } }
+    function buyTroop() { const p = upgradeCost(120, state.troopBoost, 1.19); if (state.troopBoost < 99 && state.gold >= p && state.wood >= p/3) { state.gold -= p; state.wood -= p/3; state.troopBoost++; log(`⚔️ 무기 강화 Lv.${state.troopBoost}`); } }
     function buyTier() {
+      if (state.weaponEvolution) return;
       const next = troopTiers[state.troopTier + 1];
       const p = (next && next.kind === "gravity" ? 5 : 1) * 350 * Math.pow(3, state.troopTier);
       if (next && state.troopBoost >= next.req && state.gold >= p) {
-        state.gold -= p; state.troopTier++; log(`${troopTiers[state.troopTier].emoji} ${troopTiers[state.troopTier].name} 진화`);
+        const targetTier = state.troopTier + 1;
+        const now = performance.now();
+        state.gold -= p;
+        state.weaponEvolution = { targetTier, startedAt: now, endsAt: now + weaponEvolutionDuration(targetTier) };
+        log(`${weaponDisplayEmoji(targetTier)} ${next.name} 무기 진화 시작 · ${timeText(weaponEvolutionDuration(targetTier))}`);
       } else if (next) {
-        log(`⚠️ ${next.name} 진화 조건: 병력 강화 Lv.${next.req}`);
+        log(`⚠️ ${next.name} 진화 조건: 무기 강화 Lv.${next.req}`);
       }
     }
     function buyWall() { const p = upgradeCost(150, state.wallLevel, 1.19); if (state.wallLevel < 99 && state.stone >= p && state.gold >= p/2) { state.stone -= p; state.gold -= p/2; state.wallLevel++; state.walls.forEach(w => { w.maxHp += 160 + state.hrc * 18; w.hp = w.maxHp; }); log(`🧱 모든 성벽 강화 Lv.${state.wallLevel}`); } }
@@ -1736,6 +1853,7 @@ export function initializeGame() {
       quickSlotsSignature = "";
       inventorySignature = "";
       log("∞ 관리자 모드: 자원과 체력이 무한입니다.");
+      sound.play("admin_cheat");
     }
     window.IamAdmin = key => {
       if (normalizeAdminKey(key) !== ADMIN_KEY) return false;
@@ -1850,7 +1968,7 @@ export function initializeGame() {
     function loop(now) {
       const dt = Math.min(45, now - lastFrame || 16); lastFrame = now;
       if (running && !paused && !state.ended) {
-        updateWave(now); updateMissiles(now); updateThunderer(now); updateWindy(now); updateWorkers(now); updateEnemies(dt); updateCombat(now); updateAuto(now);
+        updateWeaponEvolution(now); updateWave(now); updateMissiles(now); updateThunderer(now); updateWindy(now); updateWorkers(now); updateEnemies(dt); updateCombat(now); updateAuto(now);
         if (state.castleHp <= 0) finishGame();
       }
       render(); updateUI();
@@ -1978,6 +2096,10 @@ export function initializeGame() {
       buildingPreview,
       buyRobot,
       buyMerchant,
+      buyTier,
+      robotUpgradeCost,
+      merchantUpgradeCost,
+      weaponEvolutionDuration,
       buyItem,
       useItem
     });

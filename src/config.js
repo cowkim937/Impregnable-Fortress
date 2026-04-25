@@ -23,8 +23,8 @@ export const troopTiers = [
   { name: "돌", emoji: "🪨", power: 1, req: 0, speed: 1, flight: 5000, kind: "stone" },
   { name: "청동 도끼", emoji: "🪓", power: 1.4, req: 10, speed: 1, flight: 4000, kind: "axe" },
   { name: "철단검", emoji: "🗡️", power: 1.6, req: 20, speed: 2, flight: 2000, kind: "dagger" },
-  { name: "총", emoji: "", power: 2, req: 40, speed: 3, flight: 1500, kind: "bullet" },
-  { name: "번개창", emoji: "", power: 6, req: 70, speed: 1, flight: 0, kind: "lightning" },
+  { name: "총", emoji: "🔫", power: 2, req: 40, speed: 3, flight: 1500, kind: "bullet" },
+  { name: "번개창", emoji: "⚡", power: 6, req: 70, speed: 1, flight: 0, kind: "lightning" },
   { name: "중력파", emoji: "🌑", power: 12, req: 90, speed: 0.8, flight: 2000, kind: "gravity" }
 ];
 export const itemData = {
@@ -48,6 +48,6 @@ export const difficultyData = {
 export const buildings = [
   { id: "mine", name: "채굴장", emoji: "⛏️", sub: "🪵🪨", x: -155, y: -120, r: 54, color: "#8b693b", desc: "나무/돌/원석을 채집합니다." },
   { id: "forge", name: "공업소", emoji: "⚒️", sub: "🔥🔩", x: 155, y: -120, r: 54, color: "#983d24", desc: "원석과 금화로 HRC 소재를 제련합니다." },
-  { id: "barracks", name: "병력소", emoji: "⚔️", sub: "🛡️🧑‍✈️", x: -155, y: 135, r: 54, color: "#586a7b", desc: "병력을 훈련하고 외곽 적을 요격합니다." },
+  { id: "barracks", name: "병력소", emoji: "⚔️", sub: "🛡️🧑‍✈️", x: -155, y: 135, r: 54, color: "#586a7b", desc: "병력을 훈련하고 현재 무기로 외곽 적을 요격합니다." },
   { id: "market", name: "시장", emoji: "💰", sub: "🪙📦", x: 155, y: 135, r: 54, color: "#a57b2d", desc: "자원을 금화로 바꿉니다." }
 ];
