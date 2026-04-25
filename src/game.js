@@ -177,6 +177,19 @@ export function initializeGame() {
       if (!Number.isFinite(hp) || !Number.isFinite(maxHp)) return 1;
       return Math.max(0, Math.min(1, hp / maxHp));
     }
+    function villageEmergenceProgress(village, now = performance.now()) {
+      return Math.max(0, Math.min(1, (now - (village.spawnedAt || now)) / 10000));
+    }
+    function villagePowerFactor(village, now = performance.now()) {
+      return 0.2 + villageEmergenceProgress(village, now) * 0.8;
+    }
+    function syncVillageHp(village, now = performance.now()) {
+      const baseMaxHp = village.baseMaxHp || village.maxHp || 1;
+      village.baseMaxHp = baseMaxHp;
+      village.maxHp = baseMaxHp * villagePowerFactor(village, now);
+      village.hp = Math.max(0, village.maxHp - (village.damageTaken || 0));
+      return village.hp;
+    }
     function isBillionsMode() { return (state.difficulty || "normal") === "billions"; }
     function isBillionsSurgeWave() { return isBillionsMode() && state.wave > 0 && state.wave % 5 === 0; }
     function spawnCountMultiplier() { return difficultyMult("spawnMult") * (isBillionsSurgeWave() ? 8 : 1); }
@@ -435,7 +448,8 @@ export function initializeGame() {
     }
     function isVillage(target) { return target?.type === "village"; }
     function damageVillage(village, dmg, text = "", color = "#ff7660") {
-      village.hp -= Math.max(1, dmg);
+      village.damageTaken = (village.damageTaken || 0) + Math.max(1, dmg);
+      syncVillageHp(village);
       if (text) addEffect(village.x, village.y - 60, text, color, 18);
       if (village.hp <= 0) {
         const idx = state.villages.indexOf(village);
@@ -447,46 +461,62 @@ export function initializeGame() {
       return false;
     }
     function damageTarget(target, dmg, emoji, from = null, weapon = currentWeapon()) {
-      if (weapon.kind === "gravity") {
-        queueGravityShot(target, dmg, from, weapon);
+      if (weapon.kind === "gravity") { queueGravityShot(target, dmg, from, weapon); return; }
+      if (weapon.kind === "lightning") {
+        if (isVillage(target)) damageVillage(target, dmg);
+        else target.hp -= Math.max(1, dmg - target.def);
+        triggerMagic(target.x, target.y);
         return;
       }
       if (isVillage(target)) {
-        const applied = Math.max(1, dmg);
-        damageVillage(target, applied);
-        const fromX = from ? from.x : 0, fromY = from ? from.y : 0;
-        const distance = Math.hypot(target.x - fromX, target.y - fromY);
-        const duration = Math.min(weapon.flight, Math.max(450, distance / mapEdgeDistance() * weapon.flight));
-        state.shots.push({ fromX, fromY, toX: target.x, toY: target.y, emoji, weapon: weapon.kind, born: performance.now(), duration, hit: false });
-        triggerMagic(target.x, target.y);
+        queueProjectileShot(target.x, target.y, dmg, from, weapon, emoji);
         return;
       }
       damageEnemy(target, dmg, emoji, from, weapon);
     }
     function damageEnemy(enemy, dmg, emoji, from = null, weapon = currentWeapon()) {
-      if (weapon.kind === "gravity") {
-        queueGravityShot(enemy, dmg, from, weapon);
-        return;
-      }
-      const applied = Math.max(1, dmg - enemy.def);
-      enemy.hp -= applied;
+      if (weapon.kind === "gravity") { queueGravityShot(enemy, dmg, from, weapon); return; }
       if (weapon.kind === "lightning") {
+        enemy.hp -= Math.max(1, dmg - enemy.def);
+        triggerMagic(enemy.x, enemy.y);
         return;
       }
+      queueProjectileShot(enemy.x, enemy.y, dmg, from, weapon, emoji);
+    }
+    function queueProjectileShot(toX, toY, dmg, from = null, weapon = currentWeapon(), emoji = weapon.emoji) {
       const fromX = from ? from.x : 0, fromY = from ? from.y : 0;
-      const distance = Math.hypot(enemy.x - fromX, enemy.y - fromY);
+      const distance = Math.hypot(toX - fromX, toY - fromY);
       const duration = Math.min(weapon.flight, Math.max(450, distance / mapEdgeDistance() * weapon.flight));
-      state.shots.push({ fromX, fromY, toX: enemy.x, toY: enemy.y, emoji, weapon: weapon.kind, born: performance.now(), duration, hit: false });
-      triggerMagic(enemy.x, enemy.y);
+      state.shots.push({ fromX, fromY, toX, toY, emoji, weapon: weapon.kind, born: performance.now(), duration, hit: false, damage: dmg });
     }
     function queueGravityShot(target, dmg, from = null, weapon = currentWeapon()) {
-      const fromX = from ? from.x : 0, fromY = from ? from.y : 0;
-      const distance = Math.hypot(target.x - fromX, target.y - fromY);
-      const duration = Math.min(weapon.flight, Math.max(450, distance / mapEdgeDistance() * weapon.flight));
-      state.shots.push({ fromX, fromY, toX: target.x, toY: target.y, emoji: weapon.emoji, weapon: weapon.kind, born: performance.now(), duration, hit: false, damage: dmg });
+      queueProjectileShot(target.x, target.y, dmg, from, weapon, weapon.emoji);
     }
     function addImpactEffect(x, y, color = "#ffcf43", radius = 24) {
       state.magicEffects.push({ type: "impact", x, y, color, radius, life: 0.45 });
+    }
+    function shotCollisionRadius(shot) {
+      return ({ bullet: 12, gravity: 30, axe: 22, dagger: 18, stone: 20 })[shot.weapon] || 18;
+    }
+    function targetCollisionRadius(target) {
+      return isVillage(target) ? 44 : (target.hitRadius || 24);
+    }
+    function findShotCollision(shot, x, y) {
+      const targets = [...state.enemies, ...state.villages].filter(t => (t.hp || 0) > 0);
+      let hit = null, nearest = Infinity;
+      for (const target of targets) {
+        const dist = Math.hypot(target.x - x, target.y - y);
+        if (dist <= shotCollisionRadius(shot) + targetCollisionRadius(target) && dist < nearest) {
+          hit = target;
+          nearest = dist;
+        }
+      }
+      return hit;
+    }
+    function applyShotDamage(shot, target) {
+      const damage = shot.damage || troopDamage();
+      if (isVillage(target)) damageVillage(target, damage);
+      else target.hp -= Math.max(1, damage - target.def);
     }
     function explodeAt(x, y, damage, radius, fullTarget = null) {
       for (const enemy of state.enemies) {
@@ -610,7 +640,10 @@ export function initializeGame() {
         state.windyUntil += delta;
         state.windyLastTick += delta;
         state.overtimeUntil += delta;
-        for (const village of state.villages) village.lastSpawn += delta;
+        for (const village of state.villages) {
+          village.lastSpawn += delta;
+          village.spawnedAt += delta;
+        }
         for (const missile of state.missiles) {
           missile.launchedAt += delta;
           missile.impactAt += delta;
@@ -891,7 +924,23 @@ export function initializeGame() {
         spawnVillage();
         state.nextVillageAt = now + 16000 + Math.random() * 26000;
       }
-      for (const v of state.villages) {
+      for (let i = state.villages.length - 1; i >= 0; i--) {
+        const v = state.villages[i];
+        syncVillageHp(v, now);
+        if (v.hp <= 0) {
+          state.villages.splice(i, 1);
+          addEffect(v.x, v.y, "🏚️ 부락 파괴", "#ff8268", 24);
+          log("🏚️ 적 부락 파괴");
+          continue;
+        }
+        const progress = villageEmergenceProgress(v, now);
+        if (!v.matured && progress >= 1) {
+          v.matured = true;
+          v.lastSpawn = now;
+          const raid = Math.ceil(12 * difficultyScale(1.1, state.wave - 1) * spawnCountMultiplier());
+          for (let n = 0; n < raid; n++) spawnEnemy(v);
+        }
+        if (!v.matured) continue;
         if (now - v.lastSpawn > Math.max(380, 1800 / Math.pow(1.04, state.wave))) {
           const count = Math.ceil(3 * difficultyScale(1.08, state.wave - 1) * spawnCountMultiplier());
           for (let i = 0; i < count; i++) spawnEnemy(v);
@@ -905,11 +954,22 @@ export function initializeGame() {
       const angle = Math.random() * Math.PI * 2;
       const dist = wallRadius() + 780 + Math.random() * 620;
       const maxHp = 2600 * difficultyScale(1.08, state.wave - 1);
-      const village = { type: "village", x: Math.cos(angle) * dist, y: Math.sin(angle) * dist, hp: maxHp, maxHp, lastSpawn: 0 };
+      const now = performance.now();
+      const village = {
+        type: "village",
+        x: Math.cos(angle) * dist,
+        y: Math.sin(angle) * dist,
+        baseMaxHp: maxHp,
+        hp: maxHp * 0.2,
+        maxHp: maxHp * 0.2,
+        damageTaken: 0,
+        spawnedAt: now,
+        matured: false,
+        lastSpawn: now,
+        seed: Math.random() * 10000
+      };
       state.villages.push(village);
-      log("🏚️ 외곽에 적 부락이 생성되었습니다. 모든 공격으로 파괴할 수 있습니다!");
-      const raid = Math.ceil(12 * difficultyScale(1.1, state.wave - 1) * spawnCountMultiplier());
-      for (let i = 0; i < raid; i++) spawnEnemy(village);
+      log("🏚️ 외곽에 적 부락이 잠복 중입니다. 완성 전에 파괴할 수 있습니다!");
     }
 
     function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
@@ -1011,16 +1071,83 @@ export function initializeGame() {
       }
     }
     function drawVillages() {
+      const now = performance.now();
       for (const v of state.villages) {
-        const ratio = healthRatio(v.hp, v.maxHp);
+        syncVillageHp(v, now);
+        const progress = villageEmergenceProgress(v, now);
+        const baseMaxHp = v.baseMaxHp || v.maxHp || 1;
+        const capacityRatio = healthRatio(v.maxHp, baseMaxHp);
+        const hpRatio = healthRatio(v.hp, baseMaxHp);
+        drawSunkenColonyEffect(v, progress);
+        ctx.save();
+        ctx.globalAlpha = progress;
         ctx.font = "84px Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
         ctx.fillText("🏚️", v.x, v.y);
+        ctx.restore();
         const barW = 124, barY = v.y - 72;
         ctx.fillStyle = "#3a120f"; ctx.fillRect(v.x - barW / 2, barY, barW, 8);
-        ctx.fillStyle = "#e64134"; ctx.fillRect(v.x - barW / 2, barY, barW * ratio, 8);
+        ctx.fillStyle = "rgba(83, 34, 118, .82)"; ctx.fillRect(v.x - barW / 2, barY, barW * capacityRatio, 8);
+        ctx.fillStyle = "#e64134"; ctx.fillRect(v.x - barW / 2, barY, barW * hpRatio, 8);
         ctx.strokeStyle = "#ffe8ad"; ctx.lineWidth = 2; ctx.strokeRect(v.x - barW / 2, barY, barW, 8);
-        ctx.font = "12px Arial"; ctx.fillStyle = "#ffe8ad"; ctx.fillText(`부락 ${fmt(v.hp)}/${fmt(v.maxHp)}`, v.x, v.y + 68);
+        const progW = 116, progY = v.y + 58;
+        ctx.fillStyle = "rgba(15, 2, 25, .78)"; ctx.fillRect(v.x - progW / 2, progY, progW, 7);
+        ctx.fillStyle = "#b347ff"; ctx.fillRect(v.x - progW / 2, progY, progW * progress, 7);
+        ctx.strokeStyle = "rgba(235, 199, 255, .82)"; ctx.lineWidth = 1.5; ctx.strokeRect(v.x - progW / 2, progY, progW, 7);
+        ctx.font = "12px Arial"; ctx.fillStyle = "#ffe8ad"; ctx.fillText(`부락 ${fmt(v.hp)}/${fmt(v.maxHp)}`, v.x, v.y + 78);
       }
+    }
+    function seededUnit(seed, offset) {
+      const x = Math.sin(seed + offset * 78.233) * 43758.5453;
+      return x - Math.floor(x);
+    }
+    function drawSunkenColonyEffect(v, progress) {
+      const seed = v.seed || 1;
+      const pulse = (Math.sin(performance.now() / 900 + seed) + 1) / 2;
+      ctx.save();
+      ctx.globalAlpha = 0.6;
+      ctx.translate(v.x, v.y + 16);
+      ctx.fillStyle = "rgba(7, 1, 12, .64)";
+      ctx.beginPath(); ctx.ellipse(0, 12, 72, 34, 0, 0, Math.PI * 2); ctx.fill();
+      for (let i = 0; i < 8; i++) {
+        const a = i / 8 * Math.PI * 2 + seededUnit(seed, i) * 0.38;
+        const rx = 18 + seededUnit(seed, i + 10) * 42;
+        const ry = 7 + seededUnit(seed, i + 20) * 20;
+        ctx.fillStyle = i % 2 ? "rgba(62, 18, 92, .62)" : "rgba(38, 10, 63, .72)";
+        ctx.beginPath();
+        ctx.ellipse(Math.cos(a) * rx * 0.42, Math.sin(a) * ry * 0.55 + 12, 34 + seededUnit(seed, i + 30) * 22, 12 + seededUnit(seed, i + 40) * 12, a * 0.35, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      for (let i = 0; i < 12; i++) {
+        const a = i / 12 * Math.PI * 2 + seededUnit(seed, i + 50) * 0.5;
+        const len = 42 + seededUnit(seed, i + 60) * 54 + progress * 18;
+        const sx = Math.cos(a) * 18, sy = Math.sin(a) * 7 + 12;
+        const ex = Math.cos(a) * len, ey = Math.sin(a) * len * 0.42 + 12;
+        const mx = Math.cos(a + 0.8) * len * 0.42, my = Math.sin(a + 0.8) * len * 0.22 + 12;
+        ctx.strokeStyle = i % 2 ? "rgba(92, 28, 132, .78)" : "rgba(35, 8, 62, .9)";
+        ctx.lineWidth = 5 + seededUnit(seed, i + 70) * 4;
+        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.quadraticCurveTo(mx, my, ex, ey); ctx.stroke();
+        ctx.strokeStyle = "rgba(196, 116, 236, .5)";
+        ctx.lineWidth = 1.1;
+        ctx.beginPath(); ctx.moveTo(sx, sy - 1); ctx.quadraticCurveTo(mx, my - 1, ex, ey - 1); ctx.stroke();
+        for (let k = 1; k <= 2; k++) {
+          const t = (k + seededUnit(seed, i * 3 + k)) / 3.4;
+          const px = sx + (ex - sx) * t;
+          const py = sy + (ey - sy) * t;
+          const thorn = 5 + seededUnit(seed, i * 5 + k) * 7;
+          ctx.strokeStyle = "rgba(188, 112, 226, .58)";
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(px + Math.cos(a + Math.PI / 2) * thorn, py + Math.sin(a + Math.PI / 2) * thorn * 0.6);
+          ctx.stroke();
+        }
+      }
+      ctx.globalAlpha = 0.25 + pulse * 0.12;
+      ctx.fillStyle = "rgba(180, 96, 230, .55)";
+      ctx.beginPath(); ctx.ellipse(0, 10, 42 + pulse * 10, 16 + pulse * 4, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
     }
     function drawMines() {
       for (const m of state.mines) {
@@ -1079,37 +1206,47 @@ export function initializeGame() {
           ctx.font = "22px Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(s.emoji, 0, 0);
         }
         ctx.restore();
+        const hit = findShotCollision(s, x, y);
+        if (hit) {
+          handleShotImpact(s, x, y, hit);
+          state.shots.splice(i, 1);
+          continue;
+        }
         if (t >= 1) {
-          handleShotImpact(s);
+          handleShotImpact(s, s.toX, s.toY, null);
           state.shots.splice(i, 1);
         }
       }
     }
-    function handleShotImpact(s) {
+    function handleShotImpact(s, x = s.toX, y = s.toY, target = null) {
       if (s.weapon === "stone") {
         const count = 6 + Math.floor(Math.random() * 4);
         for (let i = 0; i < count; i++) {
           const a = Math.random() * Math.PI * 2, speed = 25 + Math.random() * 55;
-          state.fragments.push({ x: s.toX, y: s.toY, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, size: 5 + Math.random() * 15, life: 0.55 });
+          state.fragments.push({ x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, size: 5 + Math.random() * 15, life: 0.55 });
         }
       }
-      if (s.weapon === "bullet") addImpactEffect(s.toX, s.toY, "#ffcf43", 28);
-      if (s.weapon === "axe" || s.weapon === "dagger") addImpactEffect(s.toX, s.toY, "#ff7660", 22);
+      if (s.weapon !== "gravity" && target) {
+        applyShotDamage(s, target);
+        triggerMagic(x, y);
+      }
+      if (s.weapon === "bullet") addImpactEffect(x, y, "#ffcf43", 28);
+      if (s.weapon === "axe" || s.weapon === "dagger") addImpactEffect(x, y, "#ff7660", 22);
       if (s.weapon === "gravity") {
         const radius = 24 * 3;
         const damage = s.damage || troopDamage();
-        state.gravityFields.push({ x: s.toX, y: s.toY, radius, born: performance.now(), until: performance.now() + 10000 });
+        state.gravityFields.push({ x, y, radius, born: performance.now(), until: performance.now() + 10000 });
         for (const enemy of state.enemies) {
-          if (enemy.hp > 0 && Math.hypot(enemy.x - s.toX, enemy.y - s.toY) <= radius) {
+          if (enemy.hp > 0 && Math.hypot(enemy.x - x, enemy.y - y) <= radius) {
             const applied = Math.max(1, damage - enemy.def);
             enemy.hp -= applied;
           }
         }
         for (const village of [...state.villages]) {
-          if (Math.hypot(village.x - s.toX, village.y - s.toY) <= radius) damageVillage(village, damage);
+          if (Math.hypot(village.x - x, village.y - y) <= radius) damageVillage(village, damage);
         }
-        addImpactEffect(s.toX, s.toY, "#9f8cff", radius);
-        triggerMagic(s.toX, s.toY);
+        addImpactEffect(x, y, "#9f8cff", radius);
+        triggerMagic(x, y);
       }
     }
     function drawCombatEffects() {
@@ -1576,6 +1713,27 @@ export function initializeGame() {
     };
     window.cowkim = ADMIN_KEY;
 
+    function manualAttackFrom(point) {
+      const weapon = currentWeapon();
+      const angle = Math.atan2(point.y, point.x);
+      const from = { x: Math.cos(angle) * wallRadius(), y: Math.sin(angle) * wallRadius() };
+      const critical = Math.random() < 0.14;
+      const damage = troopDamage() * (critical ? 3.5 : 1);
+      if (weapon.kind === "lightning") {
+        const radius = 64;
+        state.lightningBolts.push(makeLightningBolt(from.x, from.y, point.x, point.y, { born: performance.now(), life: 1500, mode: "chain" }));
+        for (const enemy of state.enemies) {
+          if (enemy.hp > 0 && Math.hypot(enemy.x - point.x, enemy.y - point.y) <= radius) enemy.hp -= Math.max(1, damage - enemy.def);
+        }
+        for (const village of [...state.villages]) {
+          if (Math.hypot(village.x - point.x, village.y - point.y) <= radius) damageVillage(village, damage);
+        }
+        triggerMagic(point.x, point.y);
+        return;
+      }
+      queueProjectileShot(point.x, point.y, damage, from, weapon, critical ? "💥" : weapon.emoji);
+    }
+
     function handleCanvasClick(e) {
       if (!running || paused || state.ended || dragging) return;
       state.clicks++;
@@ -1606,18 +1764,6 @@ export function initializeGame() {
         }
         return;
       }
-      for (const enemy of state.enemies) {
-        if (Math.hypot(enemy.x - w.x, enemy.y - w.y) < 34) {
-          damageTarget(enemy, troopDamage() * (Math.random() < .14 ? 3.5 : 1), Math.random() < .14 ? "💥" : troopTiers[state.troopTier].emoji);
-          return;
-        }
-      }
-      for (const village of [...state.villages]) {
-        if (Math.hypot(village.x - w.x, village.y - w.y) < 76) {
-          damageTarget(village, troopDamage() * (Math.random() < .14 ? 3.5 : 1), Math.random() < .14 ? "💥" : troopTiers[state.troopTier].emoji);
-          return;
-        }
-      }
       for (const b of buildings) {
         if (Math.hypot(b.x - w.x, b.y - w.y) < b.r + 18) { clickBuilding(b); return; }
       }
@@ -1626,7 +1772,9 @@ export function initializeGame() {
         const heal = 15 * hrcMult() * state.wallLevel;
         state.castleHp = Math.min(state.castleMaxHp, state.castleHp + heal);
         addEffect(0, -80, `🏰+${fmt(heal)}`, "#9dff7e", 20);
+        return;
       }
+      manualAttackFrom(w);
     }
 
     async function finishGame() {
