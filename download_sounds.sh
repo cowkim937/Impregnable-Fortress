@@ -33,6 +33,7 @@ download_zip "kenney_interface" "https://kenney.nl/media/pages/assets/interface-
 download_zip "kenney_digital" "https://kenney.nl/media/pages/assets/digital-audio/7492b26e77-1677590265/kenney_digital-audio.zip"
 download_zip "kenney_scifi" "https://kenney.nl/media/pages/assets/sci-fi-sounds/e3af5f7ed7-1677589334/kenney_sci-fi-sounds.zip"
 download_zip "kenney_impact" "https://kenney.nl/media/pages/assets/impact-sounds/8aa7b545c9-1677589768/kenney_impact-sounds.zip"
+download_zip "opengameart_wind" "https://opengameart.org/sites/default/files/wind.zip"
 
 extract_convert "kenney_impact" "Audio/impactMining_000.ogg" "mine_click"
 extract_convert "kenney_digital" "Audio/powerUp1.ogg" "hrc_upgrade"
@@ -40,12 +41,20 @@ extract_convert "kenney_impact" "Audio/impactMetal_heavy_000.ogg" "wall_hit"
 extract_convert "kenney_digital" "Audio/lowDown.ogg" "nuke_launch"
 extract_convert "kenney_scifi" "Audio/explosionCrunch_004.ogg" "nuke_explosion"
 extract_convert "kenney_scifi" "Audio/computerNoise_000.ogg" "robot_work"
-extract_convert "kenney_scifi" "Audio/spaceEngineLow_002.ogg" "windy_active"
+extract_convert "opengameart_wind" "wind/Wind2.ogg" "windy_active"
 extract_convert "kenney_digital" "Audio/zapThreeToneUp.ogg" "admin_cheat"
+extract_convert "kenney_impact" "Audio/impactGeneric_light_000.ogg" "weapon_stone"
+extract_convert "kenney_impact" "Audio/impactMetal_light_001.ogg" "weapon_axe"
+extract_convert "kenney_impact" "Audio/impactMetal_light_003.ogg" "weapon_dagger"
+extract_convert "kenney_scifi" "Audio/laserSmall_000.ogg" "weapon_bullet"
+extract_convert "kenney_digital" "Audio/zapTwoTone2.ogg" "weapon_lightning"
+extract_convert "kenney_scifi" "Audio/forceField_000.ogg" "weapon_gravity"
+extract_convert "kenney_scifi" "Audio/laserLarge_000.ogg" "satellite_laser"
 
 cat > "$SOUND_DIR/LICENSE.txt" <<'LICENSE'
 Sound assets are extracted from Kenney audio packs and converted to MP3.
-Source: https://kenney.nl/assets
+Additional wind sound is extracted from OpenGameArt "Wind" by IgnasD.
+Sources: https://kenney.nl/assets, https://opengameart.org/content/wind
 License: Creative Commons CC0 1.0 Universal (Public Domain)
 License URL: https://creativecommons.org/publicdomain/zero/1.0/
 
@@ -56,8 +65,15 @@ Mappings:
 - nuke_launch.mp3: Kenney Digital Audio / Audio/lowDown.ogg
 - nuke_explosion.mp3: Kenney Sci-fi Sounds / Audio/explosionCrunch_004.ogg
 - robot_work.mp3: Kenney Sci-fi Sounds / Audio/computerNoise_000.ogg
-- windy_active.mp3: Kenney Sci-fi Sounds / Audio/spaceEngineLow_002.ogg
+- windy_active.mp3: OpenGameArt "Wind" by IgnasD / wind/Wind2.ogg
 - admin_cheat.mp3: Kenney Digital Audio / Audio/zapThreeToneUp.ogg
+- weapon_stone.mp3: Kenney Impact Sounds / Audio/impactGeneric_light_000.ogg
+- weapon_axe.mp3: Kenney Impact Sounds / Audio/impactMetal_light_001.ogg
+- weapon_dagger.mp3: Kenney Impact Sounds / Audio/impactMetal_light_003.ogg
+- weapon_bullet.mp3: Kenney Sci-fi Sounds / Audio/laserSmall_000.ogg
+- weapon_lightning.mp3: Kenney Digital Audio / Audio/zapTwoTone2.ogg
+- weapon_gravity.mp3: Kenney Sci-fi Sounds / Audio/forceField_000.ogg
+- satellite_laser.mp3: Kenney Sci-fi Sounds / Audio/laserLarge_000.ogg
 LICENSE
 
 echo "Downloaded and converted sounds into $SOUND_DIR"

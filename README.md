@@ -72,13 +72,22 @@
 
 ## 사운드 에셋
 
-`download_sounds.sh`는 Kenney의 CC0 오디오 팩을 직접 다운로드하고, 선택한 OGG 파일을 MP3로 변환해 `public/sounds/`에 저장합니다.
+`download_sounds.sh`는 Kenney의 CC0 오디오 팩과 OpenGameArt의 CC0 바람 효과음을 직접 다운로드하고, 선택한 OGG 파일을 MP3로 변환해 `public/sounds/`에 저장합니다.
 
 ```bash
 ./download_sounds.sh
 ```
 
 필요 도구: `curl`, `unzip`, `ffmpeg`
+
+주요 매핑:
+
+| 파일 | 소스 | 라이선스 |
+| --- | --- | --- |
+| `windy_active.mp3` | OpenGameArt `Wind` by IgnasD | CC0 |
+| `weapon_lightning.mp3`, `admin_cheat.mp3`, `hrc_upgrade.mp3` | Kenney Digital Audio | CC0 |
+| `satellite_laser.mp3`, `weapon_bullet.mp3`, `weapon_gravity.mp3`, `nuke_explosion.mp3`, `robot_work.mp3` | Kenney Sci-fi Sounds | CC0 |
+| `weapon_stone.mp3`, `weapon_axe.mp3`, `weapon_dagger.mp3`, `wall_hit.mp3`, `mine_click.mp3` | Kenney Impact Sounds | CC0 |
 
 ## 관리자 치트
 

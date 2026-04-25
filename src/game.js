@@ -31,7 +31,14 @@ export function initializeGame() {
       nuke_explosion: "./public/sounds/nuke_explosion.mp3",
       robot_work: "./public/sounds/robot_work.mp3",
       windy_active: "./public/sounds/windy_active.mp3",
-      admin_cheat: "./public/sounds/admin_cheat.mp3"
+      admin_cheat: "./public/sounds/admin_cheat.mp3",
+      weapon_stone: "./public/sounds/weapon_stone.mp3",
+      weapon_axe: "./public/sounds/weapon_axe.mp3",
+      weapon_dagger: "./public/sounds/weapon_dagger.mp3",
+      weapon_bullet: "./public/sounds/weapon_bullet.mp3",
+      weapon_lightning: "./public/sounds/weapon_lightning.mp3",
+      weapon_gravity: "./public/sounds/weapon_gravity.mp3",
+      satellite_laser: "./public/sounds/satellite_laser.mp3"
     };
 
     class SoundManager {
@@ -41,7 +48,15 @@ export function initializeGame() {
         this.enabled = true;
         this.unlocked = false;
         this.lastPlayed = new Map();
-        this.cooldowns = { wall_hit: 220, mine_click: 80, robot_work: 180 };
+        this.cooldowns = {
+          wall_hit: 220,
+          mine_click: 80,
+          robot_work: 10000,
+          weapon_lightning: 300,
+          weapon_bullet: 120,
+          satellite_laser: 1500,
+          windy_active: 4000
+        };
         this.sounds = Object.fromEntries(Object.entries(files).map(([name, src]) => {
           const audio = new Audio(src);
           audio.preload = "auto";
@@ -59,15 +74,16 @@ export function initializeGame() {
           audio.load();
         }
       }
-      play(name) {
-        if (!this.enabled || !this.unlocked || !this.sounds[name]) return;
+      play(name, options = {}) {
+        if (!this.enabled || !this.unlocked || !this.sounds[name]) return false;
         const now = performance.now();
         const cooldown = this.cooldowns[name] || 0;
-        if (now - (this.lastPlayed.get(name) || 0) < cooldown) return;
+        if (this.lastPlayed.has(name) && now - this.lastPlayed.get(name) < cooldown) return false;
         this.lastPlayed.set(name, now);
         const audio = this.sounds[name].cloneNode(true);
-        audio.volume = this.volume;
+        audio.volume = Math.max(0, Math.min(1, options.volume ?? this.volume));
         audio.play().catch(() => {});
+        return true;
       }
     }
 
@@ -282,6 +298,28 @@ export function initializeGame() {
       const evo = state.weaponEvolution;
       if (!evo) return 0;
       return Math.max(0, Math.min(1, (now - evo.startedAt) / Math.max(1, evo.endsAt - evo.startedAt)));
+    }
+    function weaponSoundName(kind) {
+      return ({
+        stone: "weapon_stone",
+        axe: "weapon_axe",
+        dagger: "weapon_dagger",
+        bullet: "weapon_bullet",
+        lightning: "weapon_lightning",
+        gravity: "weapon_gravity"
+      })[kind] || "weapon_stone";
+    }
+    function playWeaponSound(kind) {
+      sound.play(weaponSoundName(kind));
+    }
+    function robotWorkVolume(now = performance.now()) {
+      const firstRobot = state.robots?.[0];
+      if (!firstRobot) return 0.1;
+      const robot = robotPosition(firstRobot, now);
+      const center = screenToWorld(canvas.width / 2, canvas.height / 2);
+      const distance = Math.hypot(robot.x - center.x, robot.y - center.y);
+      const proximity = 1 - Math.min(1, distance / 1200);
+      return 0.1 + proximity * 0.6;
     }
     function twoNLogProgress(level, start, end) {
       const span = end - start;
@@ -550,6 +588,7 @@ export function initializeGame() {
         if (isVillage(target)) damageVillage(target, dmg);
         else target.hp -= Math.max(1, dmg - target.def);
         triggerMagic(target.x, target.y);
+        playWeaponSound(weapon.kind);
         return;
       }
       if (isVillage(target)) {
@@ -563,6 +602,7 @@ export function initializeGame() {
       if (weapon.kind === "lightning") {
         enemy.hp -= Math.max(1, dmg - enemy.def);
         triggerMagic(enemy.x, enemy.y);
+        playWeaponSound(weapon.kind);
         return;
       }
       queueProjectileShot(enemy.x, enemy.y, dmg, from, weapon, emoji);
@@ -572,6 +612,7 @@ export function initializeGame() {
       const distance = Math.hypot(toX - fromX, toY - fromY);
       const duration = Math.min(weapon.flight, Math.max(450, distance / mapEdgeDistance() * weapon.flight));
       state.shots.push({ fromX, fromY, toX, toY, emoji, weapon: weapon.kind, born: performance.now(), duration, hit: false, damage: dmg });
+      playWeaponSound(weapon.kind);
     }
     function queueGravityShot(target, dmg, from = null, weapon = currentWeapon()) {
       queueProjectileShot(target.x, target.y, dmg, from, weapon, weapon.emoji);
@@ -651,6 +692,7 @@ export function initializeGame() {
         }
         closeGameplayModals();
         addEffect(0, 0, wasActive ? "🛰️ 위성 레이저 +20s" : "🛰️ 위성 레이저 20s", "#ff4444", 34);
+        sound.play("satellite_laser");
         consumeItem(type);
         return;
       }
@@ -1008,7 +1050,7 @@ export function initializeGame() {
           const gain = mineGain(4);
           addMineResources(gain);
           addEffect(pos.x, pos.y, "", "#ffe082", 24);
-          sound.play("robot_work");
+          sound.play("robot_work", { volume: robotWorkVolume(now) });
           robot.cargo = null;
         }
       }
@@ -1879,6 +1921,7 @@ export function initializeGame() {
           if (Math.hypot(village.x - point.x, village.y - point.y) <= radius) damageVillage(village, damage);
         }
         triggerMagic(point.x, point.y);
+        playWeaponSound(weapon.kind);
         return;
       }
       queueProjectileShot(point.x, point.y, damage, from, weapon, critical ? "💥" : weapon.emoji);
@@ -2090,9 +2133,11 @@ export function initializeGame() {
     Object.assign(window, {
       state,
       gameState: state,
+      camera,
       workerHomePoint,
       robotPosition,
       ensureWorkers,
+      manualAttackFrom,
       buildingPreview,
       buyRobot,
       buyMerchant,
@@ -2100,6 +2145,8 @@ export function initializeGame() {
       robotUpgradeCost,
       merchantUpgradeCost,
       weaponEvolutionDuration,
+      robotWorkVolume,
+      sound,
       buyItem,
       useItem
     });
