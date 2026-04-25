@@ -6,7 +6,9 @@
 
 ```text
 .
-├── index.html          # 게임 화면, 스타일, 모듈 진입점
+├── index.html          # 게임 화면과 정적 리소스 연결
+├── public/css/
+│   └── style.css       # 게임 UI 스타일
 ├── src/
 │   ├── main.js         # 브라우저 실행 진입점
 │   ├── game.js         # 게임 루프, 전투, UI, 렌더링 로직
