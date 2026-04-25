@@ -21,6 +21,7 @@ export function initializeGame() {
     let adminUnlocked = false;
     const ADMIN_KEY = "cowkim";
     const ADMIN_RECORD_NAME = "-!-!-ADMIN-!-!-";
+    const RANKING_STORAGE_KEY = "yacheol_fortress_rankings_v1";
 
     function ensureInventoryItems() {
       if (!state.inventory) return;
@@ -37,6 +38,9 @@ export function initializeGame() {
     }
     function finiteRecordNumber(value) {
       return Number.isFinite(value) ? Math.floor(value) : 0;
+    }
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[ch]);
     }
 
     function updateItemCursor() {
@@ -1660,6 +1664,30 @@ export function initializeGame() {
         </div>
       `).join("");
     }
+    function sortRankingRows(rows) {
+      return rows.sort((a, b) =>
+        (Number(b.wave) || 0) - (Number(a.wave) || 0) ||
+        (Number(b.kills) || 0) - (Number(a.kills) || 0) ||
+        (Number(b.clicks) || 0) - (Number(a.clicks) || 0) ||
+        (Number(b.duration_seconds) || 0) - (Number(a.duration_seconds) || 0)
+      );
+    }
+    function loadLocalRankings() {
+      const raw = localStorage.getItem(RANKING_STORAGE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) throw new Error("local ranking data is not an array");
+      return sortRankingRows(parsed.filter(row => row && typeof row === "object"));
+    }
+    function saveLocalRanking(payload) {
+      const row = { ...payload, finished_at: new Date().toISOString() };
+      const rows = sortRankingRows([...loadLocalRankings(), row]).slice(0, 100);
+      localStorage.setItem(RANKING_STORAGE_KEY, JSON.stringify(rows));
+      return row;
+    }
+    function renderRankingTable(rows) {
+      return `<table><thead><tr><th>#</th><th>닉네임</th><th>Wave</th><th>Kill</th><th>HRC</th><th>클릭</th></tr></thead><tbody>${rows.map((r, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(r.nickname)}</td><td>${escapeHtml(r.wave)}</td><td>${escapeHtml(r.kills)}</td><td>${escapeHtml(r.hrc)}</td><td>${escapeHtml(r.clicks)}</td></tr>`).join("") || "<tr><td colspan='6'>기록 없음</td></tr>"}</tbody></table>`;
+    }
     function buyAuto() { const p = upgradeCost(90, state.autoLevel, 1.25); if (state.autoLevel < 10 && state.gold >= p) { state.gold -= p; state.autoLevel++; log(`🤖 자동 클릭 Lv.${state.autoLevel} · ${autoDelay()}ms`); } }
     function buyMine() { const p = upgradeCost(65, state.mineLevel, 1.18); if (state.mineLevel < 99 && state.gold >= p && state.stone >= p/2) { state.gold -= p; state.stone -= p/2; state.mineLevel++; log(`⛏️ 채굴 강화 Lv.${state.mineLevel}`); } }
     function buyRobot() {
@@ -1791,23 +1819,32 @@ export function initializeGame() {
         wood: finiteRecordNumber(state.wood), stone: finiteRecordNumber(state.stone), ore: finiteRecordNumber(state.ore), gold: finiteRecordNumber(state.gold),
         troops: finiteRecordNumber(state.troops), kills: state.kills, clicks: state.clicks, hrc: state.adminInfinite ? "∞" : state.hrc >= 81 ? "HRC-MAX" : String(state.hrc), wave: state.wave
       };
-      try { await fetch("/api/finish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }); } catch {}
+      let rankingSaveError = "";
+      try {
+        saveLocalRanking(payload);
+      } catch (error) {
+        rankingSaveError = error instanceof Error ? error.message : String(error);
+        console.error("랭킹 저장 실패:", error);
+      }
       document.getElementById("endStats").innerHTML = Object.entries({
         "👤 닉네임": payload.nickname, "⏱️ 생존": `${payload.duration_seconds}s`, "🌊 웨이브": payload.wave, "☠️ 처치": payload.kills,
         "🖱️ 클릭": payload.clicks, "🔥 HRC": payload.hrc, "💰 금화": fmt(payload.gold), "🧑‍✈️ 병력": fmt(payload.troops),
         "🪵 나무": fmt(payload.wood), "🪨 돌": fmt(payload.stone), "⛏️ 원석": fmt(payload.ore)
-      }).map(([k, v]) => `<div class="endStat"><strong>${k}</strong><br>${v}</div>`).join("");
+      }).map(([k, v]) => `<div class="endStat"><strong>${k}</strong><br>${v}</div>`).join("") +
+        (rankingSaveError ? `<div class="endStat"><strong>🏆 랭킹 저장 실패</strong><br>${escapeHtml(rankingSaveError)}</div>` : "");
       document.getElementById("destroyScreen").classList.remove("hidden");
     }
 
     async function showRanking() {
       document.getElementById("rankScreen").classList.remove("hidden");
       const box = document.getElementById("rankContent");
-      box.textContent = "불러오는 중...";
       try {
-        const rows = await (await fetch("/api/rankings")).json();
-        box.innerHTML = `<table><thead><tr><th>#</th><th>닉네임</th><th>Wave</th><th>Kill</th><th>HRC</th><th>클릭</th></tr></thead><tbody>${rows.map((r, i) => `<tr><td>${i + 1}</td><td>${r.nickname}</td><td>${r.wave}</td><td>${r.kills}</td><td>${r.hrc}</td><td>${r.clicks}</td></tr>`).join("") || "<tr><td colspan='6'>기록 없음</td></tr>"}</tbody></table>`;
-      } catch { box.textContent = "랭킹을 불러오지 못했습니다."; }
+        const rows = loadLocalRankings().slice(0, 20);
+        box.innerHTML = renderRankingTable(rows);
+      } catch (error) {
+        console.error("랭킹 조회 실패:", error);
+        box.textContent = `랭킹을 불러오지 못했습니다: ${error instanceof Error ? error.message : String(error)}`;
+      }
     }
 
     function loop(now) {
