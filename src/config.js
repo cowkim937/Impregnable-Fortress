@@ -38,12 +38,12 @@ export const itemData = {
   windy: { name: "윈디", emoji: "🌬️", desc: "5초간 전체 적에게 바람 피해와 감속을 줍니다." }
 };
 export const difficultyData = {
-  veryeasy: { name: "매우 쉬움", power: 0.35, emoji: "🙈", hpMult: 0.5, speedMult: 0.5, mineMult: 3, autoBonus: 4, newbieAura: true },
-  easy: { name: "쉬움", power: 0.5, emoji: "🟦", spawnMult: 0.7, mineMult: 1.5 },
-  normal: { name: "보통", power: 1, emoji: "🟢" },
-  hard: { name: "어려움", power: 2, emoji: "🟠" },
-  extreme: { name: "극한", power: 5, emoji: "🔴" },
-  billions: { name: "They are billions", power: 1, emoji: "☠️", speedMult: 1.2, spawnMult: 1.5, villageMult: 3, fortHpMult: 0.65 }
+  veryeasy: { name: "매우 쉬움", power: 0.35, emoji: "🙈", hpMult: 0.5, speedMult: 0.5, mineMult: 3, autoBonus: 4, newbieAura: true, villageSpawnSeconds: 120, villageHpMult: 0.5 },
+  easy: { name: "쉬움", power: 0.5, emoji: "🟦", spawnMult: 0.7, mineMult: 1.5, villageSpawnSeconds: 90, villageHpMult: 0.7 },
+  normal: { name: "보통", power: 1, emoji: "🟢", villageSpawnSeconds: 60, villageHpMult: 1 },
+  hard: { name: "어려움", power: 2, emoji: "🟠", villageSpawnSeconds: 50, villageHpMult: 2 },
+  extreme: { name: "극한", power: 5, emoji: "🔴", villageSpawnSeconds: 30, villageHpMult: 5 },
+  billions: { name: "They are billions", power: 1, emoji: "☠️", speedMult: 1.2, spawnMult: 1.5, villageMult: 3, fortHpMult: 0.65, villageSpawnSeconds: 5, villageHpMult: 8 }
 };
 export const buildings = [
   { id: "mine", name: "채굴장", emoji: "⛏️", sub: "🪵🪨", x: -155, y: -120, r: 54, color: "#8b693b", desc: "나무/돌/원석을 채집합니다." },

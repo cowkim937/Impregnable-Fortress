@@ -73,7 +73,7 @@ export function initializeGame() {
         nukeBought: 0,
         laserUntil: 0, laserLastTick: 0, laserX: 0, laserY: 0, laserTargetIndex: 0,
         thunderUntil: 0, thunderLastTick: 0, windyUntil: 0, windyLastTick: 0, overtimeUntil: 0,
-        spawnedThisWave: 0, waveTarget: 5, lastSpawn: 0, lastAuto: 0, lastTroopShot: 0, lastVillageSpawn: 0, nextVillageAt: performance.now() + 18000 + Math.random() * 17000,
+        spawnedThisWave: 0, waveTarget: 5, lastSpawn: 0, lastAuto: 0, lastTroopShot: 0, lastVillageSpawn: 0, nextVillageAt: performance.now() + villageSpawnDelay(difficulty),
         defenseDebuffUntil: 0, manualSpawnClicks: 0, adminInfinite: false,
         selected: "castle", ended: false,
         walls: Array.from({ length: 18 }, (_, i) => ({ index: i, hp: wallMaxHp, maxHp: wallMaxHp }))
@@ -172,6 +172,10 @@ export function initializeGame() {
     function hasNewbieAura() { return !!currentDifficulty().newbieAura; }
     function newbieAuraRadius() { return wallRadius() * 1.7; }
     function maxVillageCount() { return Math.round(10 * difficultyMult("villageMult")); }
+    function villageSpawnDelay(difficulty = state.difficulty) {
+      return ((difficultyData[difficulty || "normal"] || difficultyData.normal).villageSpawnSeconds || 60) * 1000;
+    }
+    function villageHpMultiplier() { return currentDifficulty().villageHpMult || 1; }
     function miningMultiplier() { return 2.5 * (performance.now() < (state.overtimeUntil || 0) ? 2 : 1); }
     function healthRatio(hp, maxHp) {
       if (!Number.isFinite(hp) || !Number.isFinite(maxHp)) return 1;
@@ -922,7 +926,7 @@ export function initializeGame() {
     function updateVillages(now) {
       if (state.villages.length < maxVillageCount() && now > state.nextVillageAt) {
         spawnVillage();
-        state.nextVillageAt = now + 16000 + Math.random() * 26000;
+        state.nextVillageAt = now + villageSpawnDelay();
       }
       for (let i = state.villages.length - 1; i >= 0; i--) {
         const v = state.villages[i];
@@ -953,7 +957,7 @@ export function initializeGame() {
     function spawnVillage() {
       const angle = Math.random() * Math.PI * 2;
       const dist = wallRadius() + 780 + Math.random() * 620;
-      const maxHp = 2600 * difficultyScale(1.08, state.wave - 1);
+      const maxHp = 2600 * difficultyScale(1.08, state.wave - 1) * villageHpMultiplier();
       const now = performance.now();
       const village = {
         type: "village",
