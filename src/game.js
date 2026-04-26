@@ -40,6 +40,10 @@ export function initializeGame() {
       weapon_gravity: "./public/sounds/weapon_gravity.mp3",
       satellite_laser: "./public/sounds/satellite_laser.mp3"
     };
+    const wallTexture = new Image();
+    wallTexture.decoding = "async";
+    wallTexture.src = "./public/image/defense_wall.png";
+    const WALL_TEXTURE_SOURCE = { x: 675, y: 812, w: 365, h: 112 };
 
     class SoundManager {
       constructor(files, volume = 0.45) {
@@ -1197,9 +1201,59 @@ export function initializeGame() {
       for (const w of state.walls) {
         const a1 = (w.index / state.walls.length) * Math.PI * 2;
         const a2 = ((w.index + .86) / state.walls.length) * Math.PI * 2;
-        ctx.strokeStyle = w.hp <= 0 ? "rgba(84,35,29,.35)" : healthRatio(w.hp, w.maxHp) > .5 ? "#3f7d32" : "#c9822e";
-        ctx.lineWidth = 24; ctx.beginPath(); ctx.arc(0, 0, r, a1, a2); ctx.stroke();
+        if (wallTexture.complete && wallTexture.naturalWidth > 0) drawWallTextureSegment(w, r, a1, a2);
+        else drawFallbackWallSegment(w, r, a1, a2);
       }
+    }
+    function drawFallbackWallSegment(w, r, a1, a2) {
+      ctx.strokeStyle = w.hp <= 0 ? "rgba(84,35,29,.35)" : healthRatio(w.hp, w.maxHp) > .5 ? "#3f7d32" : "#c9822e";
+      ctx.lineWidth = 24; ctx.beginPath(); ctx.arc(0, 0, r, a1, a2); ctx.stroke();
+    }
+    function drawWallTextureSegment(w, r, a1, a2) {
+      const mid = (a1 + a2) / 2;
+      const arcLength = r * (a2 - a1);
+      const ratio = healthRatio(w.hp, w.maxHp);
+      const width = arcLength * 1.08;
+      const height = 64;
+      ctx.save();
+      ctx.translate(Math.cos(mid) * r, Math.sin(mid) * r);
+      ctx.rotate(mid + Math.PI / 2);
+      ctx.shadowColor = "rgba(0,0,0,.38)";
+      ctx.shadowBlur = 8;
+      ctx.shadowOffsetY = 5;
+      ctx.globalAlpha = w.hp <= 0 ? 0.28 : 1;
+      ctx.drawImage(
+        wallTexture,
+        WALL_TEXTURE_SOURCE.x,
+        WALL_TEXTURE_SOURCE.y,
+        WALL_TEXTURE_SOURCE.w,
+        WALL_TEXTURE_SOURCE.h,
+        -width / 2,
+        -height / 2,
+        width,
+        height
+      );
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetY = 0;
+      if (w.hp <= 0) {
+        ctx.fillStyle = "rgba(42,16,15,.48)";
+        ctx.fillRect(-width / 2, -height / 2, width, height);
+      } else if (ratio < 0.52) {
+        ctx.fillStyle = "rgba(196,83,34,.28)";
+        ctx.fillRect(-width / 2, -height / 2, width, height);
+        ctx.strokeStyle = "rgba(255,214,148,.55)";
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 3; i++) {
+          const x = -width * 0.32 + ((w.index * 29 + i * 31) % Math.max(1, Math.floor(width * 0.64)));
+          const y = -height * 0.28 + ((w.index * 17 + i * 23) % Math.max(1, Math.floor(height * 0.56)));
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.lineTo(x + 8, y + 9);
+          ctx.lineTo(x + 3, y + 18);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
     }
     function drawEnemies() {
       const now = performance.now();
@@ -2150,6 +2204,7 @@ export function initializeGame() {
       merchantUpgradeCost,
       weaponEvolutionDuration,
       robotWorkVolume,
+      wallTextureReady: () => wallTexture.complete && wallTexture.naturalWidth > 0,
       sound,
       buyItem,
       useItem

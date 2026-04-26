@@ -9,6 +9,7 @@
 ├── index.html          # 게임 화면과 정적 리소스 연결
 ├── public/css/
 │   └── style.css       # 게임 UI 스타일
+├── public/image/        # 성벽 등 게임 이미지 에셋
 ├── public/sounds/      # CC0 8비트/레트로 효과음 MP3
 ├── src/
 │   ├── main.js         # 브라우저 실행 진입점
